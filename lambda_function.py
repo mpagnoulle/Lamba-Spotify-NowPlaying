@@ -1,4 +1,4 @@
-import os, json, time, boto3, requests
+import os, json, time, boto3, requests, re
 
 # Connecting to DynamoDB
 dynamodb = boto3.resource("dynamodb")
@@ -30,6 +30,7 @@ def lambda_handler(event, context):
     currentSong['artist'] = dbResponse["Item"]["artistName"]
     currentSong['coverURL'] = dbResponse["Item"]["coverURL"]
     currentSong['isPlaying'] = dbResponse["Item"]["isPlaying"]
+    currentSong['externalURL'] = dbResponse["Item"]["externalURL"]
 
     if lastRequestAt < time.time(): # If the last request was more than 5s ago, make a new one
       headers = { 'Authorization': 'Bearer ' + accessToken,
@@ -45,11 +46,13 @@ def lambda_handler(event, context):
 
           if req.status_code == 200:
             builtArtistName = buildArtistName(req.json()["item"]["artists"])
-            if currentSong['title'] != req.json()["item"]["name"] or currentSong['artist'] != builtArtistName or currentSong["isPlaying"] != req.json()["is_playing"]: # If the song has changed
-                currentSong['title'] = req.json()["item"]["name"]
+            builtSongTitle = buildSongTitle(req.json()["item"]["name"])
+            if currentSong['title'] != builtSongTitle or currentSong['artist'] != builtArtistName or currentSong["isPlaying"] != req.json()["is_playing"]: # If the song has changed
+                currentSong['title'] = builtSongTitle
                 currentSong['artist'] = builtArtistName
                 currentSong['coverURL'] = req.json()["item"]["album"]["images"][1]["url"]
                 currentSong['isPlaying'] =  req.json()["is_playing"]
+                currentSong['externalURL'] = req.json()["item"]["external_urls"]["spotify"]
                         
                 updateSongInfo(currentSong)
           else:
@@ -69,6 +72,7 @@ def lambda_handler(event, context):
                 "songTitle": currentSong['title'],
                 "artistName": currentSong['artist'],
                 "coverURL": currentSong['coverURL'],
+                "externalURL": currentSong['externalURL'],
                 "isPlaying": currentSong['isPlaying'],
                 "isCached": currentSong['isCached'],
             }
@@ -112,6 +116,11 @@ def buildArtistName(artists):
       count += 1
     return artistsBuilt
 
+def buildSongTitle(title):
+  pattern = r'\(feat.*?\)|\(with.*?\)'
+  result = re.sub(pattern, '', title, flags=re.IGNORECASE)
+  return result
+
 def updateSongInfo(songData):
     try:
       table.put_item(
@@ -121,6 +130,7 @@ def updateSongInfo(songData):
               "artistName": songData['artist'],
               "coverURL": songData['coverURL'],
               "isPlaying": songData['isPlaying'],
+              "externalURL": songData['externalURL'],
           }
       )
     except Exception as e:
