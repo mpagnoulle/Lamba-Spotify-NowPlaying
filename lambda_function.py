@@ -119,7 +119,7 @@ def buildArtistName(artists):
 
 def buildSongTitle(title):
   pat = r'\(feat.*?\)|\(with.*?\)'
-  titleBuilt = re.sub(pattern, '', title, flags=re.IGNORECASE)
+  titleBuilt = re.sub(pat, '', title, flags=re.IGNORECASE)
   titleBuilt.strip()
   return titleBuilt
 
