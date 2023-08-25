@@ -11,7 +11,6 @@ refreshToken = os.environ["refresh_token"]
 
 def lambda_handler(event, context):
     # Default vars
-    isPlaying = False
     lastRequestAt = 0
     
     currentSong = { "title": "", "artist": "", "coverURL": "", "isPlaying": False, 'isCached': True }
