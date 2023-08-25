@@ -13,7 +13,7 @@ def lambda_handler(event, context):
     # Default vars
     lastRequestAt = 0
     
-    currentSong = { "title": "", "artist": "", "coverURL": "", "isPlaying": False, 'isCached': True }
+    currentSong = { "title": "", "artist": "", "coverURL": "", "isPlaying": False, 'isCached': True, "externalURL": "" }
 
     # Get expiration time, access token and last request time from DB
     dbResponse = table.get_item(Key={"mxpg_type": "prod"})
@@ -114,12 +114,14 @@ def buildArtistName(artists):
         artistsBuilt += ', '
       artistsBuilt += artist['name']
       count += 1
+    artistsBuilt.strip()
     return artistsBuilt
 
 def buildSongTitle(title):
-  pattern = r'\(feat.*?\)|\(with.*?\)'
-  result = re.sub(pattern, '', title, flags=re.IGNORECASE)
-  return result
+  pat = r'\(feat.*?\)|\(with.*?\)'
+  titleBuilt = re.sub(pattern, '', title, flags=re.IGNORECASE)
+  titleBuilt.strip()
+  return titleBuilt
 
 def updateSongInfo(songData):
     try:
