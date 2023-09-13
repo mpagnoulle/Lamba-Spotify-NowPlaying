@@ -9,6 +9,14 @@ clientId = os.environ["client_id"]
 clientSecret = os.environ["client_secret"]
 refreshToken = os.environ["refresh_token"]
 
+# Spotify API endpoints
+currentlyPlayingEP = "https://api.spotify.com/v1/me/player/currently-playing"
+lastPlayedEP = "https://api.spotify.com/v1/me/player/recently-played"
+
+
+"""
+  Lambda handler
+"""
 def lambda_handler(event, context):
     # Default vars
     lastRequestAt = 0
@@ -33,38 +41,24 @@ def lambda_handler(event, context):
     currentSong['externalURL'] = dbResponse["Item"]["externalURL"]
 
     if lastRequestAt < time.time(): # If the last request was more than 5s ago, make a new one
-      headers = { 'Authorization': 'Bearer ' + accessToken,
-                  'Content-Type': 'application/json', 
-                  'Accept': 'application/json'
-      }
+      reqResult = makeRequest(currentlyPlayingEP, accessToken)
 
-      req = requests.get('https://api.spotify.com/v1/me/player/currently-playing', headers=headers)
+      if reqResult.status_code == 200: # If something is playing
+        currentSong = setCurrentSong(currentSong, reqResult.json()["item"])
+        updateIsPlaying(reqResult.json()["is_playing"])
+      elif reqResult.status_code == 204: # If nothing is playing
+        reqResult = makeRequest(lastPlayedEP, accessToken)
+        updateIsPlaying(False)
 
-      # Check if currently playing
-      try:
-          currentSong['isCached'] = False
+        if reqResult.status_code == 200:
+          currentSong = setCurrentSong(currentSong, reqResult.json()["items"][0]["track"])
 
-          if req.status_code == 200:
-            builtArtistName = buildArtistName(req.json()["item"]["artists"])
-            builtSongTitle = buildSongTitle(req.json()["item"]["name"])
-            if currentSong['title'] != builtSongTitle or currentSong['artist'] != builtArtistName or currentSong["isPlaying"] != req.json()["is_playing"]: # If the song has changed
-                currentSong['title'] = builtSongTitle
-                currentSong['artist'] = builtArtistName
-                currentSong['coverURL'] = req.json()["item"]["album"]["images"][1]["url"]
-                currentSong['isPlaying'] =  req.json()["is_playing"]
-                currentSong['externalURL'] = req.json()["item"]["external_urls"]["spotify"]
-                        
-                updateSongInfo(currentSong)
-          else:
-            updateIsPlaying(False)
-          updateLastReqTime()
-      except Exception as e:
-          print("ERR:" + str(e))
+      updateLastReqTime() # Update the last request time in the DB
 
     return {
         "statusCode": 200,
         "headers": {
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": "https://mxpg.eu",
             "content-type": "application/json",
         },
         "body": json.dumps(
@@ -79,7 +73,10 @@ def lambda_handler(event, context):
         ),
     }
 
-
+"""
+  Gets a new access token from the Spotify API
+  Endpoint: https://accounts.spotify.com/api/token
+"""
 def getNewAccessToken(refreshToken):
     try:
       data = {
@@ -106,6 +103,44 @@ def getNewAccessToken(refreshToken):
     except Exception as e:
         print("ERR:" + str(e))
 
+"""
+  Makes a request to the Spotify API
+  Returns the request object
+"""
+def makeRequest(url, accessToken):
+    try:
+      headers = { 'Authorization': 'Bearer ' + accessToken,
+                  'Content-Type': 'application/json', 
+                  'Accept': 'application/json'
+      }
+
+      return requests.get(url, headers=headers)
+    except Exception as e:
+        print("ERR:" + str(e))
+
+"""
+  Updates the current song in the DB
+  Returns currentSong whether it has changed or not
+"""
+def setCurrentSong(currentSong, reqJSON):
+  builtArtistName = buildArtistName(reqJSON["artists"])
+  builtSongTitle = buildSongTitle(reqJSON["name"])
+
+  if currentSong['title'] != builtSongTitle or currentSong['artist'] != builtArtistName: # If the song has changed
+      currentSong['isCached'] = False
+      currentSong['title'] = builtSongTitle
+      currentSong['artist'] = builtArtistName
+      currentSong['coverURL'] = reqJSON["album"]["images"][1]["url"]
+      currentSong['externalURL'] = reqJSON["external_urls"]["spotify"]
+              
+      updateSongInfo(currentSong) # Update the song info in the DB
+  return currentSong
+  
+
+"""
+  Builds the artist name from the artists array
+  Returns a string
+"""
 def buildArtistName(artists):
     artistsBuilt = ""
     count = 0
@@ -117,12 +152,19 @@ def buildArtistName(artists):
     artistsBuilt.strip()
     return artistsBuilt
 
+"""
+  Builds the song title
+  Returns a string
+"""
 def buildSongTitle(title):
   pat = r'\(feat.*?\)|\(with.*?\)'
   titleBuilt = re.sub(pat, '', title, flags=re.IGNORECASE)
   titleBuilt.strip()
   return titleBuilt
 
+"""
+  Updates the song info in the DB
+"""
 def updateSongInfo(songData):
     try:
       table.put_item(
@@ -138,6 +180,9 @@ def updateSongInfo(songData):
     except Exception as e:
         print("ERR:" + str(e))
 
+"""
+  Updates the last request time in the DB
+"""
 def updateLastReqTime():
   table.update_item(
       Key={
@@ -149,6 +194,9 @@ def updateLastReqTime():
       }
   )
 
+"""
+  Updates the isPlaying value in the DB
+"""
 def updateIsPlaying(isPlaying):
   table.update_item(
       Key={
